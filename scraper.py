@@ -36,8 +36,28 @@ scraper = cloudscraper.create_scraper(
 
 # ============ GitHub API ============
 
-def github_get_file(path: str) -> tuple:
-    """获取目标仓库中的文件内容和SHA"""
+def github_get_sha(path: str) -> str | None:
+    """只获取文件的SHA（用于二进制文件检查）"""
+    if not GITHUB_TOKEN or not TARGET_REPO:
+        return None
+    
+    url = f"https://api.github.com/repos/{TARGET_REPO}/contents/{path}"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    try:
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            return resp.json().get("sha")
+    except:
+        pass
+    return None
+
+
+def github_get_json(path: str) -> tuple:
+    """获取JSON文件内容和SHA"""
     if not GITHUB_TOKEN or not TARGET_REPO:
         return None, None
     
@@ -54,7 +74,7 @@ def github_get_file(path: str) -> tuple:
             content = base64.b64decode(data["content"]).decode("utf-8")
             return content, data["sha"]
     except Exception as e:
-        print(f"⚠️ 获取文件失败 {path}: {e}")
+        print(f"⚠️ 获取JSON失败 {path}: {e}")
     return None, None
 
 
@@ -70,7 +90,8 @@ def github_upload(path: str, content: bytes, message: str) -> bool:
         "Accept": "application/vnd.github.v3+json"
     }
     
-    _, sha = github_get_file(path)
+    # 获取现有文件的SHA（用于更新）
+    sha = github_get_sha(path)
     
     data = {
         "message": message,
@@ -90,7 +111,7 @@ def github_upload(path: str, content: bytes, message: str) -> bool:
 
 def get_remote_json(path: str, default=None) -> dict:
     """从目标仓库获取JSON文件"""
-    content, _ = github_get_file(path)
+    content, _ = github_get_json(path)
     if content:
         try:
             return json.loads(content)
@@ -342,7 +363,7 @@ def main():
     while True:
         current_url = build_url(current_id)
         
-        # 检查是否已完成（防止重复处理）
+        # 检查是否已完成
         if current_url in completed_set:
             print(f"⏭️ ID {current_id} 已完成，跳过")
             current_id += 1
@@ -356,7 +377,7 @@ def main():
             progress["last_success_id"] = current_id
             
             save_remote_json(
-                "progress.json", 
+                "progress.json"， 
                 progress, 
                 f"Complete: {current_url}"
             )
