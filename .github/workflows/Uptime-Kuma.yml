@@ -1,0 +1,79 @@
+name: 自动构建包含 node_modules 的 Uptime Kuma，用于内存受限的托管平台
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每周一检查更新
+    - cron: '0 0 * * 1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Get latest Uptime Kuma version
+        id: version
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/louislam/uptime-kuma/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest version: $LATEST"
+      
+      - name: Check if already built
+        id: check
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/tags/$VERSION || echo "")
+          if echo "$RELEASE" | grep -q '"id"'; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Version $VERSION already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Will build version $VERSION"
+          fi
+      
+      - name: Clone Uptime Kuma
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git clone --depth 1 --branch $VERSION https://github.com/louislam/uptime-kuma.git
+      
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          cd uptime-kuma
+          npm ci --omit=dev --legacy-peer-deps
+      
+      - name: Clean up
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          cd uptime-kuma
+          rm -rf .git .github .vscode test docker .dockerignore .editorconfig .eslintrc.js .gitignore .stylelintrc.json
+          rm -rf *.md CNAME compose.yaml
+      
+      - name: Package
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          tar -czvf uptime-kuma-${{ steps.version.outputs.version }}.tar.gz uptime-kuma
+          ls -lh uptime-kuma-*.tar.gz
+      
+      - name: Create Release
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Uptime Kuma ${{ steps.version.outputs.version }}
+          body: |
+            Pre-built Uptime Kuma ${{ steps.version.outputs.version }} with node_modules included.
+            
+            For use on low-memory hosting platforms.
+          files: uptime-kuma-${{ steps.version.outputs.version }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
