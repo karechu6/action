@@ -40,21 +40,15 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           git clone --depth 1 --branch $VERSION https://github.com/louislam/uptime-kuma.git
       
-      - name: Install ALL dependencies (for building)
+      - name: Install dependencies and build
         if: steps.check.outputs.exists == 'false'
         run: |
           cd uptime-kuma
           npm ci --legacy-peer-deps
-      
-      - name: Build frontend
-        if: steps.check.outputs.exists == 'false'
-        run: |
-          cd uptime-kuma
           npm run build
           echo "✓ Frontend built"
-          ls -la dist/
       
-      - name: Remove dev dependencies
+      - name: Reinstall production only
         if: steps.check.outputs.exists == 'false'
         run: |
           cd uptime-kuma
@@ -66,26 +60,35 @@ jobs:
         run: |
           cd uptime-kuma
           
-          # 删除不需要的文件
-          rm -rf .git .github .vscode test docker src
-          rm -rf *.md CNAME compose.yaml .* 2>/dev/null || true
-          rm -rf tsconfig*.json .eslintrc.js .stylelintrc.json 2>/dev/null || true
+          # 只删除确定不需要的文件
+          rm -rf .git .github .vscode test docker
+          rm -f *.md CNAME compose.yaml 2>/dev/null || true
+          rm -f .dockerignore .editorconfig .gitignore 2>/dev/null || true
           
-          # 清理 node_modules
-          find node_modules -name "*.md" -delete 2>/dev/null || true
-          find node_modules -name "*.ts" ! -name "*.d.ts" -delete 2>/dev/null || true
-          find node_modules -name "*.map" -delete 2>/dev/null || true
-          find node_modules -name "LICENSE*" -delete 2>/dev/null || true
-          find node_modules -name "CHANGELOG*" -delete 2>/dev/null || true
+          # 保留 src 目录（服务器需要）
+          # 保留 dist 目录（前端构建）
+          # 保留 server 目录
+          # 保留 db 目录
+          # 保留 extra 目录
+          
+          # 清理 node_modules 中不需要的文件
+          find node_modules -name "*.md" -type f -delete 2>/dev/null || true
+          find node_modules -name "*.map" -type f -delete 2>/dev/null || true
+          find node_modules -name "LICENSE*" -type f -delete 2>/dev/null || true
+          find node_modules -name "CHANGELOG*" -type f -delete 2>/dev/null || true
           find node_modules -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
           find node_modules -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
           find node_modules -type d -name "docs" -exec rm -rf {} + 2>/dev/null || true
           find node_modules -type d -name ".github" -exec rm -rf {} + 2>/dev/null || true
           
-          echo "Final structure:"
+          echo "=== Final structure ==="
           ls -la
-          echo "dist contents:"
-          ls -la dist/
+          echo "=== dist ==="
+          ls -la dist/ | head -10
+          echo "=== src ==="
+          ls -la src/ | head -10
+          echo "=== server ==="
+          ls -la server/ | head -10
       
       - name: Package
         if: steps.check.outputs.exists == 'false'
@@ -104,8 +107,9 @@ jobs:
             
             ✅ Includes:
             - Built frontend (dist/)
+            - Source files (src/)
+            - Server files (server/)
             - Production node_modules
-            - Server files
             
             For low-memory hosting platforms.
           files: uptime-kuma-${{ steps.version.outputs.version }}.tar.gz
